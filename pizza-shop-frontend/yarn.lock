@@ -2599,6 +2599,11 @@ react-is@^19.1.0:
   resolved "https://registry.yarnpkg.com/react-is/-/react-is-19.1.0.tgz#805bce321546b7e14c084989c77022351bbdd11b"
   integrity sha512-Oe56aUPnkHyyDxxkvqtd7KkdQP5uIUfHxd5XTb3wE9d/kRnZLmKbDB0GWk919tdQ+mxxPtG6EAs6RMT6i1qtHg==
 
+react-to-print@^3.1.1:
+  version "3.1.1"
+  resolved "https://registry.yarnpkg.com/react-to-print/-/react-to-print-3.1.1.tgz#dc7c4870d55e09930f4b7a32b68dabbb72d8ae5f"
+  integrity sha512-N0MUMhpl8nkGri13BjP7zusj3B/j+1eMOTt8N8PYuhBYGzA4PqTXqcihJ9cZw996dvhV6mBdwafIQCg3Ap5bKg==
+
 react-transition-group@^4.4.5:
   version "4.4.5"
   resolved "https://registry.yarnpkg.com/react-transition-group/-/react-transition-group-4.4.5.tgz#e53d4e3f3344da8521489fbef8f2581d42becdd1"
