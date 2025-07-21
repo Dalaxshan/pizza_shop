@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Typography,
@@ -17,7 +17,9 @@ import {
   InputLabel,
   Box,
   Grid,
-  IconButton
+  IconButton,
+  Alert,
+  Snackbar
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PrintIcon from '@mui/icons-material/Print';
@@ -30,7 +32,17 @@ const InvoiceManagement = () => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [orders, setOrders] = useState([]);
-  const invoiceRef = React.useRef();
+  const [loading, setLoading] = useState({
+    items: false,
+    orders: false,
+    submitting: false
+  });
+  const [notification, setNotification] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
+  const invoiceRef = useRef();
 
   useEffect(() => {
     fetchItems();
@@ -38,23 +50,39 @@ const InvoiceManagement = () => {
   }, []);
 
   const fetchItems = async () => {
+    setLoading(prev => ({ ...prev, items: true }));
     try {
-      const response = await fetch('http://localhost:8080/api/items');
+      const response = await fetch('/api/items');
+      if (!response.ok) throw new Error('Failed to fetch items');
       const data = await response.json();
       setItems(data);
     } catch (error) {
-      console.error('Error fetching items:', error);
+      showNotification('Error loading items: ' + error.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, items: false }));
     }
   };
 
   const fetchOrders = async () => {
+    setLoading(prev => ({ ...prev, orders: true }));
     try {
-      const response = await fetch('http://localhost:8080/api/orders');
+      const response = await fetch('/api/orders');
+      if (!response.ok) throw new Error('Failed to fetch orders');
       const data = await response.json();
       setOrders(data);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      showNotification('Error loading orders: ' + error.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, orders: false }));
     }
+  };
+
+  const showNotification = (message, severity = 'success') => {
+    setNotification({ open: true, message, severity });
+  };
+
+  const handleCloseNotification = () => {
+    setNotification(prev => ({ ...prev, open: false }));
   };
 
   const addToCart = (item) => {
@@ -66,9 +94,8 @@ const InvoiceManagement = () => {
             ? { ...cartItem, quantity: cartItem.quantity + 1 }
             : cartItem
         );
-      } else {
-        return [...prevCart, { ...item, quantity: 1 }];
       }
+      return [...prevCart, { ...item, quantity: 1 }];
     });
   };
 
@@ -77,13 +104,14 @@ const InvoiceManagement = () => {
   };
 
   const updateQuantity = (itemId, quantity) => {
-    if (quantity <= 0) {
+    const numQuantity = Number(quantity);
+    if (isNaN(numQuantity) || numQuantity <= 0) {
       removeFromCart(itemId);
       return;
     }
     setCart(prevCart =>
       prevCart.map(item =>
-        item.id === itemId ? { ...item, quantity: quantity } : item
+        item.id === itemId ? { ...item, quantity: numQuantity } : item
       )
     );
   };
@@ -92,51 +120,86 @@ const InvoiceManagement = () => {
     return cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
-  const handleSubmitOrder = async () => {
-    const subtotal = calculateSubtotal();
-    const order = {
-      customerName,
-      customerPhone,
-      subtotal,
-      items: cart.map(item => ({
-        item_id: item.id,
-        quantity: item.quantity,
-        price_at_order: item.price
-      }))
-    };
+  const calculateTax = () => {
+    return calculateSubtotal() * 0.1; // 10% tax
+  };
 
+  const calculateTotal = () => {
+    return calculateSubtotal() + calculateTax();
+  };
+
+  const handleSubmitOrder = async () => {
+    if (!customerName.trim()) {
+      showNotification('Customer name is required', 'error');
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, submitting: true }));
     try {
-      const response = await fetch('/api/orders', {
+      const response = await fetch('http://localhost:8080/api/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(order),
+        body: JSON.stringify({
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim(),
+          subtotal: calculateSubtotal(),
+          items: cart.map(item => ({
+            item_id: item.id,
+            quantity: item.quantity,
+            price_at_order: item.price
+          }))
+        }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        alert(`Order created with ID: ${data.order_id}`);
-        setCart([]);
-        setCustomerName('');
-        setCustomerPhone('');
-        fetchOrders();
+      if (!response.ok) {
+        throw new Error(await response.text() || 'Failed to create order');
       }
+
+      const data = await response.json();
+      showNotification(`Order #${data.order_id} created successfully`);
+      
+      // Reset form
+      setCart([]);
+      setCustomerName('');
+      setCustomerPhone('');
+      
+      // Refresh orders
+      await fetchOrders();
     } catch (error) {
-      console.error('Error creating order:', error);
+      showNotification('Error creating order: ' + error.message, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, submitting: false }));
     }
   };
 
   const handlePrint = useReactToPrint({
     content: () => invoiceRef.current,
+    onAfterPrint: () => showNotification('Invoice printed successfully')
   });
 
   return (
-    <Container maxWidth="lg">
-      <Typography variant="h4" gutterBottom sx={{ mt: 3 }}>
+    <Container maxWidth="lg" sx={{ py: 3 }}>
+      <Typography variant="h4" gutterBottom>
         Invoice Management
       </Typography>
       
+      <Snackbar
+        open={notification.open}
+        autoHideDuration={6000}
+        onClose={handleCloseNotification}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseNotification} 
+          severity={notification.severity}
+          sx={{ width: '100%' }}
+        >
+          {notification.message}
+        </Alert>
+      </Snackbar>
+
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
           <Typography variant="h6" gutterBottom>
@@ -144,7 +207,7 @@ const InvoiceManagement = () => {
           </Typography>
           <TableContainer component={Paper} sx={{ mb: 3 }}>
             <Table size="small">
-              <TableHead>
+              <TableHead sx={{ bgcolor: 'background.default' }}>
                 <TableRow>
                   <TableCell>Name</TableCell>
                   <TableCell>Price</TableCell>
@@ -152,21 +215,30 @@ const InvoiceManagement = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>${item.price.toFixed(2)}</TableCell>
-                    <TableCell align="right">
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => addToCart(item)}
-                      >
-                        Add
-                      </Button>
+                {items.length > 0 ? (
+                  items.map((item) => (
+                    <TableRow key={item.id} hover>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>${item.price.toFixed(2)}</TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => addToCart(item)}
+                          disabled={loading.items}
+                        >
+                          Add
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={3} align="center">
+                      {loading.items ? 'Loading items...' : 'No items available'}
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </TableContainer>
@@ -176,13 +248,14 @@ const InvoiceManagement = () => {
           <Typography variant="h6" gutterBottom>
             Current Order
           </Typography>
-          <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+          <Box sx={{ mb: 3, p: 2, bgcolor: 'background.paper', borderRadius: 1, boxShadow: 1 }}>
             <TextField
-              label="Customer Name"
+              label="Customer Name *"
               fullWidth
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               margin="normal"
+              disabled={loading.submitting}
             />
             <TextField
               label="Customer Phone"
@@ -190,12 +263,13 @@ const InvoiceManagement = () => {
               value={customerPhone}
               onChange={(e) => setCustomerPhone(e.target.value)}
               margin="normal"
+              disabled={loading.submitting}
             />
           </Box>
           
-          <TableContainer component={Paper}>
+          <TableContainer component={Paper} sx={{ mb: 2 }}>
             <Table size="small">
-              <TableHead>
+              <TableHead sx={{ bgcolor: 'background.default' }}>
                 <TableRow>
                   <TableCell>Item</TableCell>
                   <TableCell align="right">Price</TableCell>
@@ -205,63 +279,80 @@ const InvoiceManagement = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {cart.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell align="right">${item.price.toFixed(2)}</TableCell>
-                    <TableCell align="right">
-                      <TextField
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.id, parseInt(e.target.value))}
-                        inputProps={{ min: 1, style: { textAlign: 'right' } }}
-                        size="small"
-                        sx={{ width: 60 }}
-                      />
-                    </TableCell>
-                    <TableCell align="right">
-                      ${(item.price * item.quantity).toFixed(2)}
-                    </TableCell>
-                    <TableCell align="right">
-                      <IconButton onClick={() => removeFromCart(item.id)} size="small">
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+                {cart.length > 0 ? (
+                  <>
+                    {cart.map((item) => (
+                      <TableRow key={item.id} hover>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell align="right">${item.price.toFixed(2)}</TableCell>
+                        <TableCell align="right">
+                          <TextField
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) => updateQuantity(item.id, e.target.value)}
+                            inputProps={{ 
+                              min: 1, 
+                              style: { textAlign: 'right' } 
+                            }}
+                            size="small"
+                            sx={{ width: 60 }}
+                            disabled={loading.submitting}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          ${(item.price * item.quantity).toFixed(2)}
+                        </TableCell>
+                        <TableCell align="right">
+                          <IconButton 
+                            onClick={() => removeFromCart(item.id)} 
+                            size="small"
+                            disabled={loading.submitting}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow>
+                      <TableCell rowSpan={3} />
+                      <TableCell colSpan={2}>Subtotal</TableCell>
+                      <TableCell align="right">${calculateSubtotal().toFixed(2)}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={2}>Tax (10%)</TableCell>
+                      <TableCell align="right">${calculateTax().toFixed(2)}</TableCell>
+                    </TableRow>
+                    <TableRow sx={{ '& td': { fontWeight: 'bold' } }}>
+                      <TableCell colSpan={2}>Total</TableCell>
+                      <TableCell align="right">${calculateTotal().toFixed(2)}</TableCell>
+                    </TableRow>
+                  </>
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      No items in cart
                     </TableCell>
                   </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell rowSpan={3} />
-                  <TableCell colSpan={2}>Subtotal</TableCell>
-                  <TableCell align="right">${calculateSubtotal().toFixed(2)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell colSpan={2}>Tax (10%)</TableCell>
-                  <TableCell align="right">${(calculateSubtotal() * 0.1).toFixed(2)}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell colSpan={2}><strong>Total</strong></TableCell>
-                  <TableCell align="right">
-                    <strong>${(calculateSubtotal() * 1.1).toFixed(2)}</strong>
-                  </TableCell>
-                </TableRow>
+                )}
               </TableBody>
             </Table>
           </TableContainer>
           
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
             <Button
               variant="contained"
               color="primary"
               onClick={handleSubmitOrder}
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || loading.submitting}
+              sx={{ minWidth: 120 }}
             >
-              Submit Order
+              {loading.submitting ? 'Processing...' : 'Submit Order'}
             </Button>
             <Button
               variant="outlined"
               startIcon={<PrintIcon />}
               onClick={handlePrint}
-              disabled={cart.length === 0}
+              disabled={cart.length === 0 || loading.submitting}
             >
               Print Invoice
             </Button>
@@ -272,11 +363,13 @@ const InvoiceManagement = () => {
       {/* Hidden invoice for printing */}
       <div style={{ display: 'none' }}>
         <InvoicePrint 
-          ref={invoiceRef} 
-          customerName={customerName} 
-          customerPhone={customerPhone} 
-          cart={cart} 
-          subtotal={calculateSubtotal()} 
+          ref={invoiceRef}
+          customerName={customerName}
+          customerPhone={customerPhone}
+          cart={cart}
+          subtotal={calculateSubtotal()}
+          tax={calculateTax()}
+          total={calculateTotal()}
         />
       </div>
       
@@ -285,7 +378,7 @@ const InvoiceManagement = () => {
       </Typography>
       <TableContainer component={Paper}>
         <Table>
-          <TableHead>
+          <TableHead sx={{ bgcolor: 'background.default' }}>
             <TableRow>
               <TableCell>Order ID</TableCell>
               <TableCell>Customer</TableCell>
@@ -295,15 +388,25 @@ const InvoiceManagement = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {orders.map((order) => (
-              <TableRow key={order.id}>
-                <TableCell>{order.id}</TableCell>
-                <TableCell>{order.customer_name}</TableCell>
-                <TableCell>{order.customer_phone}</TableCell>
-                <TableCell align="right">${order.total.toFixed(2)}</TableCell>
-                <TableCell>{new Date(order.created_at).toLocaleString()}</TableCell>
+            {orders.length > 0 ? (
+              orders.map((order) => (
+                <TableRow key={order.id} hover>
+                  <TableCell>{order.id}</TableCell>
+                  <TableCell>{order.customer_name}</TableCell>
+                  <TableCell>{order.customer_phone}</TableCell>
+                  <TableCell align="right">${order.total.toFixed(2)}</TableCell>
+                  <TableCell>
+                    {new Date(order.created_at).toLocaleString()}
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={5} align="center">
+                  {loading.orders ? 'Loading orders...' : 'No orders found'}
+                </TableCell>
               </TableRow>
-            ))}
+            )}
           </TableBody>
         </Table>
       </TableContainer>
