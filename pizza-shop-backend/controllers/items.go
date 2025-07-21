@@ -5,36 +5,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"pizza-shop-backend/models"
+	"strconv"
+
+	"github.com/gorilla/mux"
 )
 
-type ItemController struct {
-	DB *sql.DB
-}
-
-func (ic *ItemController) GetItems(w http.ResponseWriter, r *http.Request) {
-	rows, err := ic.DB.Query("SELECT id, name, description, category, price, created_at, updated_at FROM items")
+func GetItems(w http.ResponseWriter, r *http.Request) {
+	items, err := models.GetAllItems()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-	defer rows.Close()
-
-	var items []models.Item
-	for rows.Next() {
-		var item models.Item
-		err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Category, &item.Price, &item.CreatedAt, &item.UpdatedAt)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		items = append(items, item)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }
 
-func (ic *ItemController) CreateItem(w http.ResponseWriter, r *http.Request) {
+func GetItem(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, err := strconv.Atoi(params["id"])
+	if err != nil {
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
+		return
+	}
+
+	item, err := models.GetItemByID(id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Item not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(item)
+}
+
+func CreateItem(w http.ResponseWriter, r *http.Request) {
 	var item models.Item
 	err := json.NewDecoder(r.Body).Decode(&item)
 	if err != nil {
@@ -42,24 +51,75 @@ func (ic *ItemController) CreateItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := ic.DB.Exec(
-		"INSERT INTO items (name, description, category, price) VALUES (?, ?, ?, ?)",
-		item.Name, item.Description, item.Category, item.Price,
-	)
+	// Validate required fields
+	if item.Name == "" || item.Price <= 0 {
+		http.Error(w, "Name and price are required with price > 0", http.StatusBadRequest)
+		return
+	}
+
+	err = models.CreateItem(item)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	id, err := result.LastInsertId()
+	w.WriteHeader(http.StatusCreated)
+}
+
+func UpdateItem(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, err := strconv.Atoi(params["id"])
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
 		return
 	}
 
-	item.ID = int(id)
+	var item models.Item
+	err = json.NewDecoder(r.Body).Decode(&item)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	item.ID = id
+
+	// Validate required fields
+	if item.Name == "" || item.Price <= 0 {
+		http.Error(w, "Name and price are required with price > 0", http.StatusBadRequest)
+		return
+	}
+
+	err = models.UpdateItem(item)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Item not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(item)
 }
 
-// Add similar methods for Update and Delete
+func DeleteItem(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, err := strconv.Atoi(params["id"])
+	if err != nil {
+		http.Error(w, "Invalid item ID", http.StatusBadRequest)
+		return
+	}
+
+	err = models.DeleteItem(id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Item not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -8,11 +8,17 @@ import (
 )
 
 func main() {
+	// Load environment variables
+	// (Make sure you have .env file or set env variables)
+
+	// Initialize database
 	config.ConnectDB()
-	defer config.DB.Close()
 
-	router := routes.SetupRoutes(config.DB)
+	// Setup routes
+	router := routes.SetupRoutes()
 
-	log.Println("Server starting on :8080...")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	// Start server
+	port := ":8080"
+	log.Printf("Server started on port %s", port)
+	log.Fatal(http.ListenAndServe(port, router))
 }

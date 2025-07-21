@@ -1,20 +1,31 @@
 package routes
 
 import (
-	"database/sql"
+	"net/http"
 	"pizza-shop-backend/controllers"
 
 	"github.com/gorilla/mux"
 )
 
-func SetupRoutes(db *sql.DB) *mux.Router {
-	router := mux.NewRouter()
+func SetupRoutes() *mux.Router {
+	r := mux.NewRouter()
 
-	itemController := &controllers.ItemController{DB: db}
+	// Item routes
+	r.HandleFunc("/api/items", controllers.GetItems).Methods("GET")
+	r.HandleFunc("/api/items", controllers.CreateItem).Methods("POST")
+	r.HandleFunc("/api/items/{id}", controllers.GetItem).Methods("GET")
+	r.HandleFunc("/api/items/{id}", controllers.UpdateItem).Methods("PUT")
+	r.HandleFunc("/api/items/{id}", controllers.DeleteItem).Methods("DELETE")
 
-	router.HandleFunc("/items", itemController.GetItems).Methods("GET")
-	router.HandleFunc("/items", itemController.CreateItem).Methods("POST")
-	// Add more routes for orders and customers
+	// Order routes
+	r.HandleFunc("/api/orders", controllers.CreateOrder).Methods("POST")
+	r.HandleFunc("/api/orders", controllers.GetAllOrders).Methods("GET")
+	r.HandleFunc("/api/orders/{id}", controllers.GetOrder).Methods("GET")
+	r.HandleFunc("/api/orders/{id}", controllers.UpdateOrder).Methods("PUT")
+	r.HandleFunc("/api/orders/{id}", controllers.DeleteOrder).Methods("DELETE")
 
-	return router
+	// Static files for frontend
+	r.PathPrefix("/").Handler(http.FileServer(http.Dir("./public")))
+
+	return r
 }
